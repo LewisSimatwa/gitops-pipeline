@@ -1,6 +1,4 @@
 {{/*
-helm/myapp/templates/deployment.yaml
-
 This template is intentionally opinionated to satisfy all three Kyverno ClusterPolicies
 that will be enforced on the staging and production namespaces:
 

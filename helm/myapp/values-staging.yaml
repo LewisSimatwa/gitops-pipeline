@@ -1,4 +1,3 @@
-# helm/myapp/values-staging.yaml
 # ─────────────────────────────────────────────────────────────────────────────
 # Staging environment overrides.
 # Merged on top of values.yaml by ArgoCD when deploying myapp-staging.
@@ -15,6 +14,7 @@ replicaCount: 1
 image:
   # !! The CI pipeline updates this value via a PR when a new image is built.
   # Do not edit this line manually — let the pipeline own it.
+  repository: acrgitopsdemodev.azurecr.io/myapp
   tag: "latest"
 
 resources:
@@ -31,11 +31,11 @@ ingress:
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
   hosts:
-    - host: myapp-staging.example.com   # replace with your actual staging domain
+    - host: myapp-staging.example.com # replace with your actual staging domain
       paths:
         - path: /
           pathType: Prefix
-  tls: []   # add TLS config here if you have a cert-manager setup
+  tls: [] # add TLS config here if you have a cert-manager setup
 
 env:
   - name: PORT

@@ -93,14 +93,15 @@ helm repo update argo
 
 info "Annotating orphaned ArgoCD secrets for Helm adoption..."
 # Adopt all secrets in the argocd namespace that are missing Helm ownership labels
-for resource_type in secrets configmaps serviceaccounts; do
-  for resource in $(kubectl get $resource_type -n argocd --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null); do
-    kubectl label $resource_type "$resource" -n argocd app.kubernetes.io/managed-by=Helm --overwrite
-    kubectl annotate $resource_type "$resource" -n argocd \
-      meta.helm.sh/release-name=argocd \
-      meta.helm.sh/release-namespace=argocd \
-      --overwrite
-  done
+for secret in $(kubectl get secrets -n argocd --no-headers -o custom-columns=NAME:.metadata.name); do
+  kubectl label secret "$secret" -n argocd \
+    app.kubernetes.io/managed-by=Helm \
+    --overwrite
+
+  kubectl annotate secret "$secret" -n argocd \
+    meta.helm.sh/release-name=argocd \
+    meta.helm.sh/release-namespace=argocd \
+    --overwrite
 done
 
 helm upgrade --install argocd argo/argo-cd \

@@ -1,4 +1,3 @@
-# argocd/notifications-cm.yaml
 # ─────────────────────────────────────────────────────────────────────────────
 # ArgoCD Notifications — Slack integration.
 #
@@ -14,7 +13,6 @@ metadata:
   name: argocd-notifications-cm
   namespace: argocd
 data:
-
   # ── Slack service config ────────────────────────────────────────────────────
   # $slack-token resolves from the argocd-notifications-secret Secret.
   service.slack: |

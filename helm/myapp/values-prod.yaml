@@ -1,4 +1,3 @@
-# helm/myapp/values-prod.yaml
 # ─────────────────────────────────────────────────────────────────────────────
 # Production environment overrides.
 # Merged on top of values.yaml by ArgoCD when deploying myapp-production.
@@ -11,7 +10,7 @@
 #   - Warn-level logging only (reduce noise and cost)
 # ─────────────────────────────────────────────────────────────────────────────
 
-replicaCount: 2   # baseline — HPA will scale up from here
+replicaCount: 2 # baseline — HPA will scale up from here
 
 image:
   # !! The CI pipeline updates this value via a PR after staging is verified.
@@ -34,7 +33,7 @@ ingress:
     # Uncomment if using cert-manager for automatic TLS
     # kubernetes.io/tls-acme: "true"
   hosts:
-    - host: myapp.example.com   # replace with your actual production domain
+    - host: myapp.example.com # replace with your actual production domain
       paths:
         - path: /
           pathType: Prefix
@@ -57,12 +56,12 @@ autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 8
-  targetCPUUtilizationPercentage: 60      # scale before you're CPU-bound
+  targetCPUUtilizationPercentage: 60 # scale before you're CPU-bound
   targetMemoryUtilizationPercentage: 70
 
 podDisruptionBudget:
   enabled: true
-  minAvailable: 1   # always keep at least 1 pod running during node drain
+  minAvailable: 1 # always keep at least 1 pod running during node drain
 
 # Spread pods across nodes for resilience
 affinity:
