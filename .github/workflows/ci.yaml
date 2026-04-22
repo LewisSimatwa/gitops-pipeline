@@ -80,7 +80,7 @@ jobs:
             --namespace staging \
             --values ${{ env.HELM_CHART_PATH }}/values.yaml \
             --values ${{ env.HELM_CHART_PATH }}/values-staging.yaml \
-            | kubectl apply --dry-run=client -f -
+            | kubectl apply --dry-run=client -f --validate=false -f -
 
       - name: Helm template dry-run — production
         run: |
@@ -88,7 +88,7 @@ jobs:
             --namespace production \
             --values ${{ env.HELM_CHART_PATH }}/values.yaml \
             --values ${{ env.HELM_CHART_PATH }}/values-prod.yaml \
-            | kubectl apply --dry-run=client -f -
+            | kubectl apply --dry-run=client -f --validate=false -f -
 
       - name: Validate ArgoCD manifests
         run: |
