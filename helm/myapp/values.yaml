@@ -150,3 +150,6 @@ extraLabels: {}
 
 command: []
 args: []
+
+#immediately delete old ReplicaSets the moment a new rollout succeeds, so no old pods can linger
+revisionHistoryLimit: 0

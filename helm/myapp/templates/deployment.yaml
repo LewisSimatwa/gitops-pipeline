@@ -20,6 +20,13 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+
+spec:
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit | default 0 }}
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  
   selector:
     matchLabels:
       {{- include "myapp.selectorLabels" . | nindent 6 }}
@@ -77,7 +84,7 @@ spec:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          
+
           {{- with .Values.command }}
           command:
             {{- toYaml . | nindent 12 }}
