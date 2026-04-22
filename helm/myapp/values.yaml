@@ -32,6 +32,8 @@ ingress:
   annotations: {}
     # kubernetes.io/tls-acme: "true"
     # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
   hosts:
     - host: myapp.example.com
       paths:
