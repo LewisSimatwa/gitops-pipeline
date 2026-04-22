@@ -47,7 +47,6 @@ spec:
       allowEmpty: false # never sync to an empty state (safety guard)
     syncOptions:
       - CreateNamespace=false # namespace already managed by Terraform
-      - RespectIgnoreDifferences=true
       - ServerSideApply=true # avoids annotation size limits on large resources
     retry:
       limit: 3

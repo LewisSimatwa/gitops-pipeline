@@ -1,19 +1,6 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Staging environment overrides.
-# Merged on top of values.yaml by ArgoCD when deploying myapp-staging.
-#
-# Philosophy for staging:
-#   - Single replica (save cost, catch pod-startup issues)
-#   - Lighter resource limits (cheaper, fits on smaller nodes)
-#   - Debug-level logging (more visibility for catching bugs early)
-#   - No HPA (we want predictable behaviour for testing)
-# ─────────────────────────────────────────────────────────────────────────────
-
 replicaCount: 1
 
 image:
-  # !! The CI pipeline updates this value via a PR when a new image is built.
-  # Do not edit this line manually — let the pipeline own it.
   repository: acrgitopsdemodev.azurecr.io/myapp
   tag: "latest"
 
@@ -25,17 +12,49 @@ resources:
     cpu: 100m
     memory: 128Mi
 
+# http-echo serves on whatever port you pass via -listen flag
+# It handles any path with 200 OK — perfect for health checks
+livenessProbe:
+  httpGet:
+    path: /
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 8080
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
+  failureThreshold: 3
+  successThreshold: 1
+
+# http-echo runs as non-root and needs no writable filesystem — fits perfectly
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
+
 ingress:
   enabled: true
   className: "nginx"
   annotations:
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
   hosts:
-    - host: myapp-staging.example.com # replace with your actual staging domain
+    - host: myapp-staging.example.com
       paths:
         - path: /
           pathType: Prefix
-  tls: [] # add TLS config here if you have a cert-manager setup
+  tls: []
 
 env:
   - name: PORT
@@ -49,6 +68,5 @@ env:
 
 autoscaling:
   enabled: false
-
 podDisruptionBudget:
   enabled: false

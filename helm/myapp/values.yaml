@@ -83,11 +83,11 @@ containerSecurityContext:
 # Kubernetes restarts the container if this probe fails.
 livenessProbe:
   httpGet:
-    path: /healthz
+    path: /
     port: 8080
-  initialDelaySeconds: 10
-  periodSeconds: 15
-  timeoutSeconds: 5
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
   failureThreshold: 3
   successThreshold: 1
 
@@ -96,11 +96,11 @@ livenessProbe:
 # Prevents traffic reaching pods that are not ready.
 readinessProbe:
   httpGet:
-    path: /readyz
+    path: /
     port: 8080
-  initialDelaySeconds: 5
-  periodSeconds: 10
-  timeoutSeconds: 3
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
   failureThreshold: 3
   successThreshold: 1
 
