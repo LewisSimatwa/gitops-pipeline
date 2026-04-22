@@ -4,7 +4,7 @@
 # Triggered on every push to main (and on PRs for lint/test only).
 #
 # Jobs:
-#   lint        → helm lint + helm template render check
+#   lint        → helm lint + kubectl dry-run
 #   build-push  → build Docker image, push to ACR (main branch only)
 #   bump-staging → open a PR updating values-staging.yaml image tag
 #
@@ -28,6 +28,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # These are non-secret values that can live here.
+  # Secret values (CLIENT_ID, TENANT_ID, etc.) come from GitHub Actions secrets.
   IMAGE_NAME: myapp
   HELM_CHART_PATH: helm/myapp
 
@@ -85,7 +87,6 @@ jobs:
         run: |
           for f in argocd/apps/*.yaml argocd/projects/*.yaml; do
             echo "Checking $f..."
-            helm template placeholder ${{ env.HELM_CHART_PATH }} > /dev/null 2>&1 || true
             python3 -c "
           import yaml, sys
           with open('$f') as fh:
@@ -95,15 +96,18 @@ jobs:
           done
 
   # ── Job 2: Build & Push ─────────────────────────────────────────────────────
+  # Only runs on pushes to main (not on PRs).
+  # Uses OIDC to authenticate to Azure — no secrets stored in GitHub.
   build-push:
     name: Build & Push Image
     runs-on: ubuntu-latest
     needs: lint
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+    # OIDC requires these permissions on the workflow token.
     permissions:
-      id-token: write
-      contents: read
+      id-token: write # request OIDC token from GitHub
+      contents: read # checkout the repo
 
     outputs:
       image_tag: ${{ steps.meta.outputs.tags }}
@@ -113,6 +117,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── Azure login via OIDC ──────────────────────────────────────────────
+      # No password or service principal secret. Azure validates the
+      # GitHub-issued JWT against the federated credential we set up in Terraform.
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -123,6 +130,10 @@ jobs:
       - name: Log in to ACR
         run: az acr login --name ${{ secrets.ACR_LOGIN_SERVER }}
 
+      # ── Docker image metadata ─────────────────────────────────────────────
+      # Generates two tags:
+      #   1. Short git SHA (e.g. "a1b2c3d") — immutable, used for prod promotion
+      #   2. "latest" — convenience tag for staging
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -132,6 +143,7 @@ jobs:
             type=sha,prefix=,suffix=,format=short
             type=raw,value=latest,enable=true
 
+      # ── Build and push ────────────────────────────────────────────────────
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -142,6 +154,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Cache layers in the GitHub Actions cache to speed up builds.
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -164,6 +177,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
+          # Always checkout main so create-pull-request has a clean base.
+          # Without this the runner is on the SHA that triggered the workflow,
+          # and create-pull-request errors: "base and branch must be different".
+          ref: main
 
       - name: Configure git
         run: |
@@ -202,6 +219,7 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GH_PAT }}
+          base: main
           branch: ${{ steps.branch.outputs.branch }}
           title: "chore: bump staging image tag to ${{ steps.sha.outputs.short_sha }}"
           body: |
