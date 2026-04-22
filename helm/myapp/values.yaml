@@ -146,3 +146,6 @@ affinity: {}
 
 # ── Extra labels on all resources ─────────────────────────────────────────────
 extraLabels: {}
+
+command: []
+args: []

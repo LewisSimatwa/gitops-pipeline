@@ -70,3 +70,7 @@ autoscaling:
   enabled: false
 podDisruptionBudget:
   enabled: false
+
+args:
+  - "-listen=:8080"
+  - "-text=hello from staging"
