@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: acrgitopsdemodev.azurecr.io/myapp
-  tag: "latest"
+  tag: "785d300"
 
 resources:
   requests:
