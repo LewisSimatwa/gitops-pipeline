@@ -1,16 +1,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Production promotion workflow.
 #
-# This workflow is triggered MANUALLY from the GitHub Actions UI after you
-# have verified that staging is healthy. It:
-#   1. Reads the current image tag from values-staging.yaml
-#   2. Updates values-prod.yaml with that same tag
-#   3. Opens a PR for human review
+# Triggered MANUALLY from the GitHub Actions UI after staging is verified.
+# Reads the current image tag from values-staging.yaml, updates values-prod.yaml
+# and opens a PR for human review.
 #
-# After merging the PR, ArgoCD will show myapp-production as OutOfSync.
-# The final sync to production must be triggered manually:
-#   argocd app sync myapp-production
-#   (or via the ArgoCD UI)
+# After merging the PR, trigger the final sync manually:
+#   argocd app sync myapp-production --prune
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Promote to Production
@@ -54,13 +50,18 @@ jobs:
             TAG="${{ github.event.inputs.image_tag }}"
             echo "Using manually specified tag: $TAG"
           else
-            # Read the tag currently deployed to staging from values-staging.yaml
             TAG=$(grep '^\s*tag:' helm/myapp/values-staging.yaml | head -1 | awk '{print $2}' | tr -d '"')
             echo "Using current staging tag: $TAG"
           fi
 
-          if [ -z "$TAG" ] || [ "$TAG" = "latest" ]; then
-            echo "ERROR: Refusing to promote 'latest' tag — only SHA-pinned tags should go to production."
+          if [ -z "$TAG" ]; then
+            echo "ERROR: Could not resolve an image tag."
+            exit 1
+          fi
+
+          if [ "$TAG" = "latest" ]; then
+            echo "ERROR: Refusing to promote 'latest' — only SHA-pinned tags should go to production."
+            echo "Run the CI pipeline first so staging has a SHA tag, then re-run this workflow."
             exit 1
           fi
 
@@ -70,9 +71,7 @@ jobs:
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           FILE="helm/myapp/values-prod.yaml"
-
           sed -i "s/^  tag: .*/  tag: \"${TAG}\"/" "$FILE"
-
           echo "Updated $FILE:"
           grep "tag:" "$FILE"
 
@@ -119,7 +118,7 @@ jobs:
             ## After merging
 
             ArgoCD will show **myapp-production** as `OutOfSync` but will NOT auto-sync.
-            To complete the production deployment, run:
+            To complete the production deployment run:
 
             ```bash
             argocd app sync myapp-production --prune
