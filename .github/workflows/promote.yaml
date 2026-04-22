@@ -1,4 +1,3 @@
-# .github/workflows/promote.yaml
 # ─────────────────────────────────────────────────────────────────────────────
 # Production promotion workflow.
 #
@@ -91,6 +90,8 @@ jobs:
           BRANCH="chore/promote-prod-${TAG}"
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
 
+          # Delete remote branch if it exists from a previous failed run.
+          git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
           git add helm/myapp/values-prod.yaml
           git commit -m "chore: promote image ${TAG} to production
@@ -99,7 +100,7 @@ jobs:
           Reason: ${{ github.event.inputs.reason }}
           Staging tag: ${{ steps.tag.outputs.tag }}
           Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          git push origin "$BRANCH"
+          git push origin "$BRANCH" --force
 
       - name: Open pull request
         uses: peter-evans/create-pull-request@v6

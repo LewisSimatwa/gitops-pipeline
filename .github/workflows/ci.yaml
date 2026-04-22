@@ -206,6 +206,8 @@ jobs:
           BRANCH="chore/bump-staging-${SHORT_SHA}"
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
 
+          # Delete remote branch if it exists from a previous failed run.
+          git push origin --delete "$BRANCH" 2>/dev/null || true
           git checkout -b "$BRANCH"
           git add helm/myapp/values-staging.yaml
           git commit -m "chore: bump staging image tag to ${SHORT_SHA}
@@ -213,7 +215,7 @@ jobs:
           Triggered by: ${{ github.event.head_commit.message }}
           Commit: ${{ github.sha }}
           Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          git push origin "$BRANCH"
+          git push origin "$BRANCH" --force
 
       - name: Open pull request
         uses: peter-evans/create-pull-request@v6
