@@ -13,6 +13,7 @@ replicaCount: 1
 image:
   # This is overwritten by the CI pipeline when it bumps the image tag.
   # Format: <acr-login-server>/<image-name>
+  # Format: <acr-login-server>/<image-name>
   repository: acrgitopsdemodev.azurecr.io/myapp
   pullPolicy: IfNotPresent
   # The CI pipeline opens a PR that updates this value in values-staging.yaml

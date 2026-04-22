@@ -10,12 +10,35 @@
 #   - Warn-level logging only (reduce noise and cost)
 # ─────────────────────────────────────────────────────────────────────────────
 
-replicaCount: 2 # baseline — HPA will scale up from here
+replicaCount: 2
 
 image:
-  # !! The CI pipeline updates this value via a PR after staging is verified.
-  # Do not edit this line manually — let the pipeline own it.
+  repository: acrgitopsdemodev.azurecr.io/myapp
   tag: "latest"
+
+args:
+  - "-listen=:8080"
+  - "-text=hello from production"
+
+livenessProbe:
+  httpGet:
+    path: /
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+  successThreshold: 1
+
+readinessProbe:
+  httpGet:
+    path: /
+    port: 8080
+  initialDelaySeconds: 3
+  periodSeconds: 5
+  timeoutSeconds: 2
+  failureThreshold: 3
+  successThreshold: 1
 
 resources:
   requests:
@@ -29,18 +52,13 @@ ingress:
   enabled: true
   className: "nginx"
   annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    # Uncomment if using cert-manager for automatic TLS
-    # kubernetes.io/tls-acme: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
   hosts:
-    - host: myapp.example.com # replace with your actual production domain
+    - host: myapp.example.com
       paths:
         - path: /
           pathType: Prefix
-  tls:
-    - secretName: myapp-prod-tls
-      hosts:
-        - myapp.example.com
+  tls: []
 
 env:
   - name: PORT
@@ -56,14 +74,13 @@ autoscaling:
   enabled: true
   minReplicas: 2
   maxReplicas: 8
-  targetCPUUtilizationPercentage: 60 # scale before you're CPU-bound
+  targetCPUUtilizationPercentage: 60
   targetMemoryUtilizationPercentage: 70
 
 podDisruptionBudget:
   enabled: true
-  minAvailable: 1 # always keep at least 1 pod running during node drain
+  minAvailable: 1
 
-# Spread pods across nodes for resilience
 affinity:
   podAntiAffinity:
     preferredDuringSchedulingIgnoredDuringExecution:
