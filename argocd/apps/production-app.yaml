@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Child Application — deploys myapp to the production namespace.
+#
+# Auto-sync is OFF (no syncPolicy.automated block).
+#
+# Production promotion flow:
+#   1. CI bumps the image tag in values-prod.yaml and opens a PR.
+#   2. A human reviews and merges the PR.
+#   3. ArgoCD detects drift (cluster ≠ git) and shows the app as OutOfSync.
+#   4. A human triggers sync manually — either from the ArgoCD UI,
+#      or via CLI: argocd app sync myapp-production
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: myapp-production
+  namespace: argocd
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    environment: production
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Prod gets the same Slack notifications as staging.
+    # In a real setup, you might route to a separate #prod-alerts channel.
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: gitops-alerts
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: gitops-alerts
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: gitops-alerts
+    # Drift detection alert — fires when git and cluster diverge.
+    notifications.argoproj.io/subscribe.on-sync-status-unknown.slack: gitops-alerts
+spec:
+  project: gitops-project
+
+  source:
+    repoURL: https://github.com/LewisSimatwa/gitops-pipeline.git # ← replace
+    targetRevision: HEAD
+    path: helm/myapp
+    helm:
+      releaseName: myapp-production
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: production
+
+  # ── NO syncPolicy.automated ──────────────────────────────────────────────────
+  # Omitting the automated block is what makes this a manual gate.
+  # ArgoCD will still show sync status and drift, but will never act on its own.
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=false
+      - RespectIgnoreDifferences=true
+      - ServerSideApply=true
+      - PruneLast=true # delete old resources only after new ones are healthy
+    retry:
+      limit: 2
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 60s
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/spec/containers/0/image

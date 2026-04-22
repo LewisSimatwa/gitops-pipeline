@@ -1,0 +1,54 @@
+# helm/myapp/values-staging.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Staging environment overrides.
+# Merged on top of values.yaml by ArgoCD when deploying myapp-staging.
+#
+# Philosophy for staging:
+#   - Single replica (save cost, catch pod-startup issues)
+#   - Lighter resource limits (cheaper, fits on smaller nodes)
+#   - Debug-level logging (more visibility for catching bugs early)
+#   - No HPA (we want predictable behaviour for testing)
+# ─────────────────────────────────────────────────────────────────────────────
+
+replicaCount: 1
+
+image:
+  # !! The CI pipeline updates this value via a PR when a new image is built.
+  # Do not edit this line manually — let the pipeline own it.
+  tag: "latest"
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 32Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  hosts:
+    - host: myapp-staging.example.com   # replace with your actual staging domain
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []   # add TLS config here if you have a cert-manager setup
+
+env:
+  - name: PORT
+    value: "8080"
+  - name: APP_ENV
+    value: "staging"
+  - name: LOG_LEVEL
+    value: "debug"
+  - name: LOG_FORMAT
+    value: "json"
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false

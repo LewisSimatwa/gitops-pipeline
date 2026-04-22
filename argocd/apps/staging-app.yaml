@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Child Application — deploys myapp to the staging namespace.
+#
+# Auto-sync is ON:
+#   Every merge to main that changes the Helm chart or values-staging.yaml
+#   triggers an immediate sync. No human approval needed for staging.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: myapp-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    environment: staging
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Wire Slack notifications for this app.
+    # The channel name must match a channel your Slack bot has been invited to.
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: gitops-alerts
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: gitops-alerts
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: gitops-alerts
+spec:
+  project: gitops-project
+
+  source:
+    repoURL: https://github.com/LewisSimatwa/gitops-pipeline.git # ← replace
+    targetRevision: HEAD
+    path: helm/myapp
+    helm:
+      releaseName: myapp-staging
+      # ArgoCD merges these value files in order — later files win.
+      # values.yaml sets safe defaults; values-staging.yaml overrides for staging.
+      valueFiles:
+        - values.yaml
+        - values-staging.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: staging
+
+  syncPolicy:
+    automated:
+      prune: true # delete k8s resources removed from the chart
+      selfHeal: true # re-apply if someone manually edits the cluster
+      allowEmpty: false # never sync to an empty state (safety guard)
+    syncOptions:
+      - CreateNamespace=false # namespace already managed by Terraform
+      - RespectIgnoreDifferences=true
+      - ServerSideApply=true # avoids annotation size limits on large resources
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 30s
+
+  # Ignore the image tag field — the CI pipeline owns it via direct commits.
+  # Without this, ArgoCD would immediately revert CI's tag bump.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/spec/containers/0/image

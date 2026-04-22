@@ -1,0 +1,77 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ClusterPolicy: require-liveness-probe
+#
+# Blocks any pod whose containers are missing a liveness probe.
+# Applies only to the staging and production namespaces.
+#
+# Rationale:
+#   Without a liveness probe, Kubernetes has no way to detect a deadlocked or
+#   hung container and restart it automatically. This is a production hygiene
+#   requirement — not optional.
+#
+# The Helm chart's values.yaml provides a compliant probe by default so this
+# policy will never block deployments from the chart without configuration.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-liveness-probe
+  annotations:
+    policies.kyverno.io/title: Require Liveness Probe
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Every container must define a liveness probe so Kubernetes can
+      automatically restart containers that become unresponsive.
+      Pods without a liveness probe are blocked from the staging and
+      production namespaces.
+spec:
+  validationFailureAction: Enforce
+  background: true
+
+  rules:
+    - name: check-liveness-probe
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - staging
+                - production
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kyverno
+                - argocd
+                - kube-system
+          # Exclude one-shot Job pods — they complete and exit, probes don't apply.
+          - resources:
+              selector:
+                matchLabels:
+                  "batch.kubernetes.io/job-name": "?*"
+
+      validate:
+        message: >-
+          Container '{{ request.object.spec.containers[0].name }}' in namespace
+          '{{ request.object.metadata.namespace }}' is missing a livenessProbe.
+          Add a liveness probe to the container spec. For HTTP apps, use:
+            livenessProbe:
+              httpGet:
+                path: /healthz
+                port: 8080
+              initialDelaySeconds: 10
+              periodSeconds: 15
+
+        # Kyverno checks each container in the array.
+        # The presence of the livenessProbe key (regardless of what type it is)
+        # satisfies this check. Accepts httpGet, tcpSocket, and exec probes.
+        deny:
+          conditions:
+            any:
+              # Deny if any container is missing a liveness probe entirely.
+              - key: "{{ request.object.spec.containers[].livenessProbe | length(@) }}"
+                operator: NotEquals
+                value: "{{ request.object.spec.containers[] | length(@) }}"

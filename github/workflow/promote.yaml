@@ -1,0 +1,134 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Production promotion workflow.
+#
+# This workflow is triggered MANUALLY from the GitHub Actions UI after you
+# have verified that staging is healthy. It:
+#   1. Reads the current image tag from values-staging.yaml
+#   2. Updates values-prod.yaml with that same tag
+#   3. Opens a PR for human review
+#
+# After merging the PR, ArgoCD will show myapp-production as OutOfSync.
+# The final sync to production must be triggered manually:
+#   argocd app sync myapp-production
+#   (or via the ArgoCD UI)
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Promote to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to promote (leave blank to use current staging tag)"
+        required: false
+        default: ""
+      reason:
+        description: "Reason for this promotion (shown in the PR body)"
+        required: true
+        default: "Staging verified, promoting to production"
+
+jobs:
+  promote:
+    name: Promote Staging → Production
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+            echo "Using manually specified tag: $TAG"
+          else
+            # Read the tag currently deployed to staging from values-staging.yaml
+            TAG=$(grep '^\s*tag:' helm/myapp/values-staging.yaml | head -1 | awk '{print $2}' | tr -d '"')
+            echo "Using current staging tag: $TAG"
+          fi
+
+          if [ -z "$TAG" ] || [ "$TAG" = "latest" ]; then
+            echo "ERROR: Refusing to promote 'latest' tag — only SHA-pinned tags should go to production."
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Update image tag in values-prod.yaml
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          FILE="helm/myapp/values-prod.yaml"
+
+          sed -i "s/^  tag: .*/  tag: \"${TAG}\"/" "$FILE"
+
+          echo "Updated $FILE:"
+          grep "tag:" "$FILE"
+
+      - name: Create branch and commit
+        id: branch
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          BRANCH="chore/promote-prod-${TAG}"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+          git checkout -b "$BRANCH"
+          git add helm/myapp/values-prod.yaml
+          git commit -m "chore: promote image ${TAG} to production
+
+          Promoted by: @${{ github.actor }}
+          Reason: ${{ github.event.inputs.reason }}
+          Staging tag: ${{ steps.tag.outputs.tag }}
+          Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          git push origin "$BRANCH"
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GH_PAT }}
+          branch: ${{ steps.branch.outputs.branch }}
+          title: "🚀 Promote ${{ steps.tag.outputs.tag }} to production"
+          body: |
+            ## Production promotion
+
+            | Field | Value |
+            |-------|-------|
+            | Image tag | `${{ steps.tag.outputs.tag }}` |
+            | Promoted by | @${{ github.actor }} |
+            | Reason | ${{ github.event.inputs.reason }} |
+            | Workflow | [Run #${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
+
+            ## Checklist before merging
+
+            - [ ] Staging has been running this image tag without errors
+            - [ ] No Kyverno policy violations in staging (`kubectl get policyreport -n staging`)
+            - [ ] ArgoCD shows myapp-staging as Healthy and Synced
+            - [ ] Relevant stakeholders notified
+
+            ## After merging
+
+            ArgoCD will show **myapp-production** as `OutOfSync` but will NOT auto-sync.
+            To complete the production deployment, run:
+
+            ```bash
+            argocd app sync myapp-production --prune
+            ```
+
+            Or click **Sync** in the ArgoCD UI.
+          labels: |
+            automated
+            production
+            gitops
+            promotion
+          delete-branch: true

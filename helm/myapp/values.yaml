@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Base values — apply to ALL environments.
+# Environment overrides live in values-staging.yaml and values-prod.yaml.
+#
+# IMPORTANT: Every field that a Kyverno ClusterPolicy enforces MUST have
+# a safe default here so the chart is always policy-compliant out of the box.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Replica count ─────────────────────────────────────────────────────────────
+replicaCount: 1
+
+# ── Image ─────────────────────────────────────────────────────────────────────
+image:
+  # This is overwritten by the CI pipeline when it bumps the image tag.
+  # Format: <acr-login-server>/<image-name>
+  repository: acrgitopsdemodev.azurecr.io
+  pullPolicy: IfNotPresent
+  # The CI pipeline opens a PR that updates this value in values-staging.yaml
+  # and values-prod.yaml. The base values.yaml always stays at "latest".
+  tag: "latest"
+
+# ── Service ───────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# ── Ingress ───────────────────────────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+    # kubernetes.io/tls-acme: "true"
+    # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: myapp.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: myapp-tls
+  #    hosts:
+  #      - myapp.example.com
+
+# ── Resource limits ───────────────────────────────────────────────────────────
+# REQUIRED by Kyverno policy: require-resource-limits
+# Every container must have explicit CPU and memory limits.
+# Requests should be set to ~25-50% of limits for good bin-packing.
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# ── Pod security context ──────────────────────────────────────────────────────
+# REQUIRED by Kyverno policy: require-non-root
+# Applied at the pod level — affects all containers in the pod.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 2000
+  seccompProfile:
+    type: RuntimeDefault
+
+# ── Container security context ────────────────────────────────────────────────
+# Applied at the individual container level.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
+
+# ── Liveness probe ────────────────────────────────────────────────────────────
+# REQUIRED by Kyverno policy: require-liveness-probe
+# Kubernetes restarts the container if this probe fails.
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  timeoutSeconds: 5
+  failureThreshold: 3
+  successThreshold: 1
+
+# ── Readiness probe ───────────────────────────────────────────────────────────
+# Kubernetes removes the pod from Service endpoints while this fails.
+# Prevents traffic reaching pods that are not ready.
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+  successThreshold: 1
+
+# ── Service account ───────────────────────────────────────────────────────────
+serviceAccount:
+  create: true
+  automountServiceAccountToken: false # explicitly disabled — app does not call k8s API
+  annotations: {}
+  name: "" # leave empty to use the auto-generated name from _helpers.tpl
+
+# ── Horizontal Pod Autoscaler ─────────────────────────────────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# ── Pod Disruption Budget ─────────────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1   # use one of minAvailable or maxUnavailable, not both
+
+# ── Extra environment variables ───────────────────────────────────────────────
+# Override per environment in values-staging.yaml / values-prod.yaml
+env:
+  - name: PORT
+    value: "8080"
+
+# ── ConfigMap ─────────────────────────────────────────────────────────────────
+configMap:
+  enabled: false
+  data: {}
+  # data:
+  #   APP_CONFIG: |
+  #     key: value
+
+# ── Node selector / tolerations / affinity ────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ── Extra labels on all resources ─────────────────────────────────────────────
+extraLabels: {}

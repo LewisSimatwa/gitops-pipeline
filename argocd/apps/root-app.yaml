@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# The "root" App-of-Apps.
+#
+# This is the ONLY manifest you apply manually:
+#   kubectl apply -f argocd/apps/root-app.yaml -n argocd
+#
+# After that, ArgoCD watches the argocd/apps/ folder in your repo and
+# automatically creates/updates/deletes all child Application manifests.
+# Adding a new environment = dropping a new YAML file in argocd/apps/.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root-app
+  namespace: argocd
+  labels:
+    app.kubernetes.io/managed-by: argocd
+  # The finalizer ensures that when you delete the root app, ArgoCD
+  # cascades the deletion to all child apps and their resources.
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default # root-app uses the default project (no restrictions needed)
+
+  source:
+    repoURL: https://github.com/LewisSimatwa/gitops-pipeline.git # ← replace with your repo URL
+    targetRevision: HEAD
+    # ArgoCD watches this folder. Any Application manifest dropped here
+    # becomes a managed child app automatically.
+    path: argocd/apps
+
+  destination:
+    # In-cluster — ArgoCD managing itself
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true # remove child apps deleted from git
+      selfHeal: true # re-create child apps if someone deletes them from the UI
+    syncOptions:
+      - CreateNamespace=true

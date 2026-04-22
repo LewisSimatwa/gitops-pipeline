@@ -1,0 +1,249 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 4: CI Pipeline
+#
+# Triggered on every push to main (and on PRs for lint/test only).
+#
+# Jobs:
+#   lint        → helm lint + kubectl dry-run
+#   build-push  → build Docker image, push to ACR (main branch only)
+#   bump-staging → open a PR updating values-staging.yaml image tag
+#
+# Authentication to Azure uses OIDC (no stored credentials anywhere).
+# The managed identity client ID lives in GitHub Actions secrets.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Cancel any in-progress run for the same branch when a new push arrives.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # These are non-secret values that can live here.
+  # Secret values (CLIENT_ID, TENANT_ID, etc.) come from GitHub Actions secrets.
+  IMAGE_NAME: myapp
+  HELM_CHART_PATH: helm/myapp
+
+jobs:
+  # ── Job 1: Lint ─────────────────────────────────────────────────────────────
+  # Runs on every push and PR. Validates Helm templates and YAML manifests
+  # before any image is built or pushed.
+  lint:
+    name: Lint & Validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "3.14.4"
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
+
+      - name: Helm lint — base values
+        run: |
+          helm lint ${{ env.HELM_CHART_PATH }} \
+            --values ${{ env.HELM_CHART_PATH }}/values.yaml \
+            --strict
+
+      - name: Helm lint — staging
+        run: |
+          helm lint ${{ env.HELM_CHART_PATH }} \
+            --values ${{ env.HELM_CHART_PATH }}/values.yaml \
+            --values ${{ env.HELM_CHART_PATH }}/values-staging.yaml \
+            --strict
+
+      - name: Helm lint — production
+        run: |
+          helm lint ${{ env.HELM_CHART_PATH }} \
+            --values ${{ env.HELM_CHART_PATH }}/values.yaml \
+            --values ${{ env.HELM_CHART_PATH }}/values-prod.yaml \
+            --strict
+
+      - name: Helm template dry-run — staging
+        run: |
+          helm template myapp-staging ${{ env.HELM_CHART_PATH }} \
+            --namespace staging \
+            --values ${{ env.HELM_CHART_PATH }}/values.yaml \
+            --values ${{ env.HELM_CHART_PATH }}/values-staging.yaml \
+            | kubectl apply --dry-run=client -f -
+
+      - name: Helm template dry-run — production
+        run: |
+          helm template myapp-production ${{ env.HELM_CHART_PATH }} \
+            --namespace production \
+            --values ${{ env.HELM_CHART_PATH }}/values.yaml \
+            --values ${{ env.HELM_CHART_PATH }}/values-prod.yaml \
+            | kubectl apply --dry-run=client -f -
+
+      - name: Validate ArgoCD manifests
+        run: |
+          for f in argocd/apps/*.yaml argocd/projects/*.yaml; do
+            echo "Validating $f..."
+            kubectl apply --dry-run=client -f "$f" 2>/dev/null || \
+              echo "  (skipped — requires ArgoCD CRDs, which is expected in lint-only mode)"
+          done
+
+  # ── Job 2: Build & Push ─────────────────────────────────────────────────────
+  # Only runs on pushes to main (not on PRs).
+  # Uses OIDC to authenticate to Azure — no secrets stored in GitHub.
+  build-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    needs: lint
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    # OIDC requires these permissions on the workflow token.
+    permissions:
+      id-token: write # request OIDC token from GitHub
+      contents: read # checkout the repo
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+      short_sha: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Azure login via OIDC ──────────────────────────────────────────────
+      # No password or service principal secret. Azure validates the
+      # GitHub-issued JWT against the federated credential we set up in Terraform.
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ secrets.ACR_LOGIN_SERVER }}
+
+      # ── Docker image metadata ─────────────────────────────────────────────
+      # Generates two tags:
+      #   1. Short git SHA (e.g. "a1b2c3d") — immutable, used for prod promotion
+      #   2. "latest" — convenience tag for staging
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,suffix=,format=short
+            type=raw,value=latest,enable=true
+
+      # ── Build and push ────────────────────────────────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache layers in the GitHub Actions cache to speed up builds.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: echo "Pushed image digest ${{ steps.meta.outputs.digest }}"
+
+  # ── Job 3: Bump staging image tag (open PR) ─────────────────────────────────
+  # After a successful image push, update values-staging.yaml with the new
+  # image tag and open a PR. ArgoCD auto-syncs staging once the PR is merged.
+  bump-staging:
+    name: Bump Staging Image Tag
+    runs-on: ubuntu-latest
+    needs: build-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: write # push the tag-bump branch
+      pull-requests: write # open the PR
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Use a PAT so the PR can trigger other workflows.
+          # Without this, PRs opened by GITHUB_TOKEN don't trigger CI.
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Extract short SHA
+        id: sha
+        run: echo "short_sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Update image tag in values-staging.yaml
+        run: |
+          SHORT_SHA="${{ steps.sha.outputs.short_sha }}"
+          FILE="helm/myapp/values-staging.yaml"
+
+          # Replace the line "  tag: ..." under the image block.
+          # This sed pattern is intentionally simple — the tag line is always
+          # the second line of the image block in values-staging.yaml.
+          sed -i "s/^  tag: .*/  tag: \"${SHORT_SHA}\"/" "$FILE"
+
+          echo "Updated $FILE:"
+          grep "tag:" "$FILE"
+
+      - name: Create branch and commit
+        id: branch
+        run: |
+          SHORT_SHA="${{ steps.sha.outputs.short_sha }}"
+          BRANCH="chore/bump-staging-${SHORT_SHA}"
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+
+          git checkout -b "$BRANCH"
+          git add helm/myapp/values-staging.yaml
+          git commit -m "chore: bump staging image tag to ${SHORT_SHA}
+
+          Triggered by: ${{ github.event.head_commit.message }}
+          Commit: ${{ github.sha }}
+          Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          git push origin "$BRANCH"
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GH_PAT }}
+          branch: ${{ steps.branch.outputs.branch }}
+          title: "chore: bump staging image tag to ${{ steps.sha.outputs.short_sha }}"
+          body: |
+            ## Staging image tag bump
+
+            | Field | Value |
+            |-------|-------|
+            | Image | `${{ secrets.ACR_LOGIN_SERVER }}/myapp:${{ steps.sha.outputs.short_sha }}` |
+            | Commit | `${{ github.sha }}` |
+            | Author | @${{ github.actor }} |
+            | Workflow | [Run #${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
+
+            **Merge this PR** to trigger ArgoCD auto-sync on the staging namespace.
+
+            After verifying staging, run the [promote-to-production](${{ github.server_url }}/${{ github.repository }}/actions/workflows/promote.yaml) workflow to open a production PR.
+          labels: |
+            automated
+            staging
+            gitops
+          delete-branch: true

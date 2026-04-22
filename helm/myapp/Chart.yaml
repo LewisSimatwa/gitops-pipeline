@@ -1,0 +1,28 @@
+apiVersion: v2
+name: myapp
+description: |
+  Sample application Helm chart for the GitOps multi-environment pipeline.
+  Deployed to staging (auto-sync) and production (manual gate) via ArgoCD.
+  All templates are pre-configured to satisfy Kyverno policies:
+    - resource limits on every container
+    - liveness probe on every container
+    - non-root security context on every pod
+type: application
+
+# Chart version — bump this when you change the chart structure or templates.
+# Follows SemVer: major.minor.patch
+version: 0.1.0
+
+# Application version — this is the Docker image tag.
+# The CI pipeline overwrites this via a PR to values-staging.yaml / values-prod.yaml.
+# It is here for documentation only; the actual tag comes from values.yaml.
+appVersion: "latest"
+
+keywords:
+  - gitops
+  - argocd
+  - demo
+
+maintainers:
+  - name: Your Name
+    email: you@example.com

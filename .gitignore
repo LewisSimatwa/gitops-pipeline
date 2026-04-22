@@ -1,0 +1,38 @@
+# ─── Terraform ────────────────────────────────────────────────────────────────
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars     
+terraform/tfplan
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/crash.log
+terraform/override.tf
+terraform/override.tf.json
+terraform/*_override.tf
+terraform/*_override.tf.json
+
+# ─── Secrets / credentials ────────────────────────────────────────────────────
+*.pem
+*.key
+*.p12
+*.pfx
+kubeconfig
+.kube/
+.azure/
+
+# ─── OS / editor junk ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── Python (if you add helper scripts) ───────────────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ─── Node (if you add JS tooling) ─────────────────────────────────────────────
+node_modules/

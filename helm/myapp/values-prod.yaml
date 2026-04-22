@@ -1,0 +1,79 @@
+# helm/myapp/values-prod.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# Production environment overrides.
+# Merged on top of values.yaml by ArgoCD when deploying myapp-production.
+#
+# Philosophy for production:
+#   - Multiple replicas for availability
+#   - HPA for traffic-driven scaling
+#   - PodDisruptionBudget to survive node upgrades
+#   - Stricter resource limits (right-sized for actual load)
+#   - Warn-level logging only (reduce noise and cost)
+# ─────────────────────────────────────────────────────────────────────────────
+
+replicaCount: 2   # baseline — HPA will scale up from here
+
+image:
+  # !! The CI pipeline updates this value via a PR after staging is verified.
+  # Do not edit this line manually — let the pipeline own it.
+  tag: "latest"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # Uncomment if using cert-manager for automatic TLS
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: myapp.example.com   # replace with your actual production domain
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: myapp-prod-tls
+      hosts:
+        - myapp.example.com
+
+env:
+  - name: PORT
+    value: "8080"
+  - name: APP_ENV
+    value: "production"
+  - name: LOG_LEVEL
+    value: "warn"
+  - name: LOG_FORMAT
+    value: "json"
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 60      # scale before you're CPU-bound
+  targetMemoryUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1   # always keep at least 1 pod running during node drain
+
+# Spread pods across nodes for resilience
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - myapp
+          topologyKey: kubernetes.io/hostname

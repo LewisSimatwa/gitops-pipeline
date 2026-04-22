@@ -1,0 +1,102 @@
+# argocd/projects/gitops-project.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+# AppProject — scopes what repos, namespaces, and resource kinds
+# the child apps in this project are allowed to touch.
+#
+# Apply before the root-app bootstrap:
+#   kubectl apply -f argocd/projects/gitops-project.yaml -n argocd
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: gitops-project
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: "Multi-environment GitOps pipeline — staging and production"
+
+  # ── Source repos this project may deploy from ─────────────────────────────
+  sourceRepos:
+    - https://github.com/LewisSimatwa/gitops-pipeline.git # ← replace
+
+  # ── Destination clusters and namespaces ───────────────────────────────────
+  # Apps in this project can ONLY deploy to these namespace/cluster combos.
+  # Trying to deploy to any other namespace will be rejected by ArgoCD.
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: staging
+    - server: https://kubernetes.default.svc
+      namespace: production
+
+  # ── Cluster-scoped resources this project can manage ─────────────────────
+  # Kept minimal — the project doesn't need to touch cluster-wide objects.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  # ── Namespace-scoped resources this project can manage ────────────────────
+  # Explicit allowlist prevents accidental deployment of privileged resources
+  # (ClusterRoles, PodSecurityPolicies, etc.).
+  namespaceResourceWhitelist:
+    - group: "apps"
+      kind: Deployment
+    - group: "apps"
+      kind: ReplicaSet
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: Pod
+    - group: "networking.k8s.io"
+      kind: Ingress
+    - group: "autoscaling"
+      kind: HorizontalPodAutoscaler
+    - group: "policy"
+      kind: PodDisruptionBudget
+
+  # ── Orphaned resource monitoring ──────────────────────────────────────────
+  # Warns in the UI when cluster resources exist that are NOT managed by
+  # any Application in this project (useful for catching manual changes).
+  orphanedResources:
+    warn: true
+    ignore:
+      # Ignore the default service account — Kubernetes creates it automatically.
+      - group: ""
+        kind: ServiceAccount
+        name: default
+
+  # ── Sync windows ──────────────────────────────────────────────────────────
+  # Uncomment to block syncs to production outside business hours.
+  # syncWindows:
+  #   - kind: deny
+  #     schedule: "0 20 * * *"    # 8pm UTC
+  #     duration: 12h
+  #     applications: ["myapp-production"]
+  #     namespaces: ["production"]
+  #     manualSync: false          # still allow manual sync during the window
+
+  # ── RBAC roles ────────────────────────────────────────────────────────────
+  roles:
+    # Developers can sync staging but only VIEW production.
+    - name: developer
+      description: "Can sync staging, read-only on production"
+      policies:
+        - p, proj:gitops-project:developer, applications, get,    gitops-project/*, allow
+        - p, proj:gitops-project:developer, applications, sync,   gitops-project/myapp-staging, allow
+        - p, proj:gitops-project:developer, applications, action/*, gitops-project/myapp-staging, allow
+      groups:
+        - developers # map to your OIDC/GitHub team
+
+    # Ops can sync everything including production.
+    - name: ops
+      description: "Full sync access to all environments"
+      policies:
+        - p, proj:gitops-project:ops, applications, *, gitops-project/*, allow
+      groups:
+        - ops

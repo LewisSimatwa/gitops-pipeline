@@ -1,0 +1,177 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ClusterPolicy: require-non-root
+#
+# Blocks any pod that runs containers as root (UID 0) or that omits
+# runAsNonRoot: true from both the pod and container security context.
+# Applies only to the staging and production namespaces.
+#
+# Rationale:
+#   Running as root inside a container dramatically widens the blast radius
+#   of a container escape. This is a hard requirement for any production
+#   workload and is enforced here at the admission level — not just in policy docs.
+#
+# The Helm chart's values.yaml sets the following by default, which satisfies
+# this policy:
+#   podSecurityContext:
+#     runAsNonRoot: true
+#     runAsUser: 1000
+#   containerSecurityContext:
+#     runAsNonRoot: true
+#     allowPrivilegeEscalation: false
+#     capabilities:
+#       drop: [ALL]
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-non-root
+  annotations:
+    policies.kyverno.io/title: Require Non-Root Containers
+    policies.kyverno.io/category: Pod Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Containers must not run as root. Pods must set runAsNonRoot: true
+      at either the pod or container security context level, and must not
+      explicitly set runAsUser: 0.
+spec:
+  validationFailureAction: Enforce
+  background: true
+
+  rules:
+    # ── Rule 1: runAsNonRoot must be set ──────────────────────────────────────
+    # Requires that either the pod-level OR the container-level securityContext
+    # sets runAsNonRoot: true.
+    - name: check-run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - staging
+                - production
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kyverno
+                - argocd
+                - kube-system
+
+      validate:
+        message: >-
+          Pod '{{ request.object.metadata.name }}' in namespace
+          '{{ request.object.metadata.namespace }}' must set runAsNonRoot: true.
+          Add this to your pod spec:
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 1000
+
+        anyPattern:
+          # Acceptable pattern A: pod-level runAsNonRoot
+          - spec:
+              securityContext:
+                runAsNonRoot: true
+          # Acceptable pattern B: every container sets runAsNonRoot
+          - spec:
+              containers:
+                - securityContext:
+                    runAsNonRoot: true
+
+    # ── Rule 2: runAsUser must not be 0 ──────────────────────────────────────
+    # Even if runAsNonRoot is set, an explicit runAsUser: 0 would override it.
+    # This rule catches that edge case.
+    - name: check-run-as-user-not-root
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - staging
+                - production
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kyverno
+                - argocd
+                - kube-system
+
+      validate:
+        message: >-
+          Pod '{{ request.object.metadata.name }}' must not set runAsUser: 0.
+          Use a non-zero UID (e.g. runAsUser: 1000).
+        pattern:
+          spec:
+            =(securityContext):
+              =(runAsUser): ">0"
+            containers:
+              - =(securityContext):
+                  =(runAsUser): ">0"
+
+    # ── Rule 3: allowPrivilegeEscalation must be false ────────────────────────
+    # Prevents a container process from gaining more privileges than its parent.
+    # This is the most common container escape vector.
+    - name: check-privilege-escalation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - staging
+                - production
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kyverno
+                - argocd
+                - kube-system
+
+      validate:
+        message: >-
+          Container '{{ request.object.spec.containers[0].name }}' must set
+          allowPrivilegeEscalation: false in its securityContext.
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  allowPrivilegeEscalation: false
+
+    # ── Rule 4: Drop ALL capabilities ────────────────────────────────────────
+    # Containers should start with no Linux capabilities and only add back
+    # the specific ones they need (which for most web apps is none).
+    - name: check-drop-all-capabilities
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - staging
+                - production
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kyverno
+                - argocd
+                - kube-system
+
+      validate:
+        message: >-
+          Container '{{ request.object.spec.containers[0].name }}' must drop ALL
+          capabilities. Add this to containerSecurityContext:
+            capabilities:
+              drop:
+                - ALL
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  capabilities:
+                    drop:
+                      - ALL

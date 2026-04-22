@@ -1,0 +1,38 @@
+# Your Azure subscription ID.
+# Find it with: az account show --query id -o tsv
+subscription_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Short name used in all Azure resource names.
+# Keep it lowercase, max 20 chars.
+project_name = "gitops-demo"
+
+# "dev" | "staging" | "prod"
+environment = "dev"
+
+# Azure region. Pick one close to you.
+# Full list: az account list-locations -o table
+location = "eastus"
+
+# Kubernetes version. Check available versions with:
+# az aks get-versions --location eastus --query "orchestrators[].orchestratorVersion" -o tsv
+kubernetes_version = "1.34.4" #update to the best working version
+
+# Number of worker nodes in the default pool.
+# 2 nodes is fine for this project — ~$35/month with Standard_B2s.
+node_count = 2
+
+# VM size for nodes.
+# Standard_B2s = 2 vCPU, 4 GB RAM — cheapest that runs ArgoCD + app comfortably.
+# Standard_D2s_v3 if you want a bit more headroom.
+vm_size = "Standard_DS2_v3"
+
+# Your GitHub username or organisation name.
+github_org = "your-github-username"
+
+# The repository name (not the full URL, just the repo name).
+github_repo = "gitops-pipeline"
+
+# Slack bot token for ArgoCD notifications.
+# Create a Slack app at https://api.slack.com/apps, add the chat:write scope.
+# Leave empty string if you want to skip notifications for now.
+slack_token = "xoxb-your-slack-token-here"

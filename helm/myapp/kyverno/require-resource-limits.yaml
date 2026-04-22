@@ -1,0 +1,116 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ClusterPolicy: require-resource-limits
+#
+# Blocks any pod that is missing CPU or memory limits on any container.
+# Applies only to the staging and production namespaces.
+#
+# Rationale:
+#   Without limits, a misbehaving container can consume all node resources,
+#   starving other pods. This policy enforces the same contract that the
+#   Kubernetes scheduler and cost management tools depend on.
+#
+# Install Kyverno first:
+#   helm repo add kyverno https://kyverno.github.io/kyverno
+#   helm install kyverno kyverno/kyverno -n kyverno --create-namespace --version 3.1.4
+#
+# Then apply this policy:
+#   kubectl apply -f kyverno/require-resource-limits.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    policies.kyverno.io/title: Require Resource Limits
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/description: >-
+      Every container must declare CPU and memory limits.
+      Pods without limits are blocked from being admitted to
+      the staging and production namespaces.
+spec:
+  # "enforce" = block the admission request and return an error.
+  # "audit"   = allow but log a violation. Use audit first when rolling out to
+  #             an existing cluster so you can see violations before blocking.
+  validationFailureAction: Enforce
+
+  # Apply to new resources and also re-evaluate existing resources on update.
+  background: true
+
+  rules:
+    - name: check-container-resource-limits
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - staging
+                - production
+      # Exclude the kyverno system namespace and ArgoCD itself so policy
+      # enforcement doesn't block the controllers that enforce it.
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kyverno
+                - argocd
+                - kube-system
+
+      validate:
+        message: >-
+          Container '{{ request.object.spec.containers[0].name }}' in namespace
+          '{{ request.object.metadata.namespace }}' is missing resource limits.
+          Every container must declare resources.limits.cpu and resources.limits.memory.
+          See helm/myapp/values.yaml for an example.
+
+        # The pattern uses a wildcard ("*") to mean "this field must be present
+        # and non-empty". Kyverno evaluates each container in the array.
+        pattern:
+          spec:
+            containers:
+              - name: "*"
+                resources:
+                  limits:
+                    cpu: "?*" # must be present and non-empty
+                    memory: "?*"
+                  requests:
+                    cpu: "?*"
+                    memory: "?*"
+
+    # Init containers must also have limits.
+    - name: check-initcontainer-resource-limits
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - staging
+                - production
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kyverno
+                - argocd
+                - kube-system
+      # Only run this rule if the pod actually has init containers.
+      preconditions:
+        any:
+          - key: "{{ request.object.spec.initContainers[] | length(@) }}"
+            operator: GreaterThanOrEquals
+            value: 1
+      validate:
+        message: >-
+          Init container '{{ request.object.spec.initContainers[0].name }}' is missing
+          resource limits. All init containers must also declare cpu and memory limits.
+        pattern:
+          spec:
+            initContainers:
+              - name: "*"
+                resources:
+                  limits:
+                    cpu: "?*"
+                    memory: "?*"
