@@ -1,0 +1,74 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    policies.kyverno.io/title: Require Resource Limits
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+    kyverno.io/autogen-controllers: "none"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-container-resource-limits
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - staging
+                - production
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kyverno
+                - argocd
+                - kube-system
+      validate:
+        message: "Container '{{ request.object.spec.containers[0].name }}' is missing resource limits."
+        pattern:
+          spec:
+            containers:
+              - name: "*"
+                resources:
+                  limits:
+                    cpu: "?*"
+                    memory: "?*"
+                  requests:
+                    cpu: "?*"
+                    memory: "?*"
+
+    - name: check-deployment-container-resource-limits
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+              namespaces:
+                - staging
+                - production
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kyverno
+                - argocd
+                - kube-system
+      validate:
+        message: "Container '{{ request.object.spec.template.spec.containers[0].name }}' is missing resource limits."
+        pattern:
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: "*"
+                    resources:
+                      limits:
+                        cpu: "?*"
+                        memory: "?*"
+                      requests:
+                        cpu: "?*"
+                        memory: "?*"
